@@ -44,7 +44,7 @@ object Sync {
     fun abgleich(ctx: Context): String {
         if (!aktiv(ctx)) return "Kein Sync-Code gespeichert."
         var senden = "Handy-Akku: nicht gesendet (unverändert)"
-        var holen = 
+        var holen = ""
         val sp = ctx.getSharedPreferences(EarbudWidget.PREFS, Context.MODE_PRIVATE)
         val c = code(ctx)
         try {
