@@ -89,7 +89,10 @@ class EarbudWidget : AppWidgetProvider() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             for (id in ids) {
-                val (w, h) = groesse(ctx, mgr, id)
+                val (w0, h0) = groesse(ctx, mgr, id)
+                val q = if (teil || glanz >= 0f) 0.55f else 1f      // Animationsbilder kleiner = fluessiger
+                val w = (w0 * q).toInt()
+                val h = (h0 * q).toInt()
                 val v = RemoteViews(ctx.packageName, R.layout.widget)
                 v.setImageViewBitmap(R.id.bild, PillRenderer.zeichne(werte, laden, hg, w, h, glanz))
                 if (teil || glanz >= 0f) {
@@ -106,9 +109,10 @@ class EarbudWidget : AppWidgetProvider() {
 
         /** Zaehlt die Zahlen weich von 0 (bzw. vom alten Stand) auf den neuen Stand - wie beim PC. */
         private fun zaehlen(ctx: Context, alt: Array<Int?>, neu: Array<Int?>, laden: BooleanArray) {
-            val schritte = 14
-            for (i in 1..schritte) {
-                val t = i / schritte.toFloat()
+            val dauer = 650L
+            val t0 = System.currentTimeMillis()
+            while (true) {
+                val t = ((System.currentTimeMillis() - t0) / dauer.toFloat()).coerceAtMost(1f)
                 val e = 1f - (1f - t) * (1f - t) * (1f - t)
                 val zw = Array<Int?>(3) { k ->
                     val a0 = alt[k]
@@ -116,9 +120,10 @@ class EarbudWidget : AppWidgetProvider() {
                     if (a0 != null && n0 != null) (a0 + (n0 - a0) * e).toInt() else n0
                 }
                 zeichnen(ctx, zw, laden, -1f, true)
-                if (i < schritte) Thread.sleep(40)
+                if (t >= 1f) break
+                Thread.sleep(12)
             }
-            zeichnen(ctx, neu, laden)   // Endbild inkl. Tipp-Aktion
+            zeichnen(ctx, neu, laden)   // Endbild in voller Schaerfe inkl. Tipp-Aktion
         }
 
         private fun nullen(w: Array<Int?>): Array<Int?> = Array(3) { if (w[it] != null) 0 else null }
@@ -128,13 +133,10 @@ class EarbudWidget : AppWidgetProvider() {
             Thread {
                 try {
                     val (w, l) = gemerkt(ctx)
-                    var t = 0f
-                    val ende = System.currentTimeMillis() + 800
-                    while (System.currentTimeMillis() < ende) {
-                        zeichnen(ctx, w, l, t)
-                        t += 0.07f
-                        if (t > 1f) t = 0f
-                        Thread.sleep(70)
+                    val t0 = System.currentTimeMillis()
+                    while (System.currentTimeMillis() - t0 < 800) {
+                        zeichnen(ctx, w, l, ((System.currentTimeMillis() - t0) % 800) / 800f)
+                        Thread.sleep(12)
                     }
                     zaehlen(ctx, nullen(w), w, l)
                 } catch (e: Exception) {
@@ -160,13 +162,10 @@ class EarbudWidget : AppWidgetProvider() {
                     val beginn = System.currentTimeMillis()
                     if (animiert) {
                         glanzThread = Thread {
-                            var t = 0f
                             try {
                                 while (glanzAn.get()) {
-                                    zeichnen(ctx, alt.first, alt.second, t)
-                                    t += 0.06f
-                                    if (t > 1f) t = 0f
-                                    Thread.sleep(70)
+                                    zeichnen(ctx, alt.first, alt.second, ((System.currentTimeMillis() - beginn) % 800) / 800f)
+                                    Thread.sleep(12)
                                 }
                             } catch (e: Exception) {
                             }

@@ -185,6 +185,10 @@ class MainActivity : Activity() {
         zeigeStatus()
         aktualisiereVorschau()
         LiveService.starten(this)
+        if (Sync.aktiv(this)) Thread {
+            val t = Sync.abgleich(this)
+            runOnUiThread { zeigeStatus(); EarbudWidget.neuZeichnen(this) }
+        }.start()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
