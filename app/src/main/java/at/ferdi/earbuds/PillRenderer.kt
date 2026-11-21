@@ -124,19 +124,28 @@ object PillRenderer {
         c.drawLine(px - 6.5f * u, py - 1.5f * u, px + 6.5f * u, py - 1.5f * u, strich)
     }
 
-    /** Kleiner Blitz ueber dem Symbol. */
-    private fun blitz(c: Canvas, px: Float, py: Float, u: Float, farbe: Int) {
+    /** Gelber Blitz mit dunklem Rand unten rechts am Symbol. */
+    private fun blitz(c: Canvas, px: Float, py: Float, u: Float, rand: Int) {
+        val xs = floatArrayOf(2.0f, -4.6f, -0.4f, -2.0f, 4.8f, 0.6f)
+        val ys = floatArrayOf(-10f, 1.4f, 1.4f, 10f, -1.8f, -1.8f)
+        val k = 0.72f
+        val ox = px + 4.2f * u
+        val oy = py + 2.4f * u
+        fun pfad(fx: Float, fy: Float): Path {
+            val b = Path()
+            for (i in xs.indices) {
+                val x = ox + xs[i] * fx * k * u
+                val y = oy + ys[i] * fy * k * u
+                if (i == 0) b.moveTo(x, y) else b.lineTo(x, y)
+            }
+            b.close()
+            return b
+        }
         val pf = Paint(Paint.ANTI_ALIAS_FLAG)
-        pf.color = farbe
         pf.style = Paint.Style.FILL
-        val b = Path()
-        b.moveTo(px + 1.6f * u, py - 8f * u)
-        b.lineTo(px - 3.4f * u, py + 0.8f * u)
-        b.lineTo(px - 0.2f * u, py + 0.8f * u)
-        b.lineTo(px - 1.6f * u, py + 8f * u)
-        b.lineTo(px + 3.6f * u, py - 1.2f * u)
-        b.lineTo(px + 0.4f * u, py - 1.2f * u)
-        b.close()
-        c.drawPath(b, pf)
+        pf.color = rand
+        c.drawPath(pfad(1.3f, 1.2f), pf)
+        pf.color = Color.rgb(255, 224, 40)
+        c.drawPath(pfad(1f, 1f), pf)
     }
 }
