@@ -19,6 +19,7 @@ import android.widget.TextView
 class MainActivity : Activity() {
 
     private lateinit var status: TextView
+    private lateinit var syncStatus: TextView
     private lateinit var vorschau: ImageView
     private lateinit var wertDeck: TextView
     private lateinit var rot: SeekBar
@@ -109,6 +110,22 @@ class MainActivity : Activity() {
             override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
         })
         box.addView(code)
+        syncStatus = TextView(this)
+        syncStatus.textSize = 13f
+        box.addView(syncStatus)
+        val test = Button(this)
+        test.text = "Sync jetzt testen"
+        test.setOnClickListener {
+            syncStatus.text = "Teste ..."
+            Thread {
+                val t = Sync.abgleich(this)
+                runOnUiThread {
+                    syncStatus.text = "Code gespeichert: ${if (Sync.aktiv(this)) "ja (${Sync.code(this).length} Zeichen)" else "nein"}\n$t"
+                    EarbudWidget.neuZeichnen(this)
+                }
+            }.start()
+        }
+        box.addView(test)
 
         // --- Aussehen ---
         box.addView(beschriftung("Vorschau"))
@@ -178,6 +195,7 @@ class MainActivity : Activity() {
     }
 
     private fun zeigeStatus() {
+        syncStatus.text = "Code gespeichert: ${if (Sync.aktiv(this)) "ja (${Sync.code(this).length} Zeichen)" else "nein"}\nLetzter Abgleich:\n${Sync.status(this)}"
         val ok = EarbudReader.hatErlaubnis(this)
         status.text = (if (ok) "Bluetooth-Erlaubnis: erteilt.\n\n" else "Bluetooth-Erlaubnis: fehlt noch.\n\n") +
             "So bekommst du das Widget: Startbildschirm lange drücken → Widgets → „Ohrhörer-Akku“ " +

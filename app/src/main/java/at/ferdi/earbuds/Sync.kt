@@ -41,8 +41,10 @@ object Sync {
     }
 
     /** Sendet den Handy-Akku (bei Aenderung oder alle 8 min) und holt den Laptop-Akku. Im Hintergrund-Thread aufrufen. */
-    fun abgleich(ctx: Context) {
-        if (!aktiv(ctx)) return
+    fun abgleich(ctx: Context): String {
+        if (!aktiv(ctx)) return "Kein Sync-Code gespeichert."
+        var senden = "Handy-Akku: nicht gesendet (unverändert)"
+        var holen = 
         val sp = ctx.getSharedPreferences(EarbudWidget.PREFS, Context.MODE_PRIVATE)
         val c = code(ctx)
         try {
@@ -61,9 +63,11 @@ object Sync {
                     v.inputStream.close()
                     v.disconnect()
                     sp.edit().putInt("sp", h.first).putBoolean("sl", h.second).putLong("st", jetzt).apply()
+                    senden = "Handy-Akku ${h.first} % gesendet"
                 }
-            }
+            } else senden = "Handy-Akku nicht lesbar"
         } catch (e: Exception) {
+            senden = "Senden fehlgeschlagen: ${e.javaClass.simpleName} ${e.message ?: ""}"
         }
         try {
             val v = URL("https://ntfy.sh/$c/json?poll=1&since=12h").openConnection() as HttpURLConnection
@@ -87,7 +91,16 @@ object Sync {
                 }
             }
             sp.edit().putInt("lp", p).putBoolean("ll", l).putLong("lt", t).apply()
+            holen = if (p < 0) "Laptop: keine Nachricht vom PC gefunden"
+            else "Laptop-Akku $p % (vor ${(System.currentTimeMillis() / 1000 - t) / 60} min)"
         } catch (e: Exception) {
+            holen = "Abrufen fehlgeschlagen: ${e.javaClass.simpleName} ${e.message ?: ""}"
         }
+        val text = "$senden\n$holen"
+        sp.edit().putString("sync_status", text).apply()
+        return text
     }
+
+    fun status(ctx: Context): String =
+        ctx.getSharedPreferences(EarbudWidget.PREFS, Context.MODE_PRIVATE).getString("sync_status", "noch nicht ausgeführt")!!
 }
