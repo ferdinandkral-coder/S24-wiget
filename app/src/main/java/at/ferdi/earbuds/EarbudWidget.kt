@@ -93,7 +93,7 @@ class EarbudWidget : AppWidgetProvider() {
                 val v = RemoteViews(ctx.packageName, R.layout.widget)
                 v.setImageViewBitmap(R.id.bild, PillRenderer.zeichne(werte, laden, hg, w, h, glanz))
                 if (teil || glanz >= 0f) {
-                    mgr.partialUpdateAppWidget(id, v)
+                    mgr.partiallyUpdateAppWidget(id, v)
                 } else {
                     v.setOnClickPendingIntent(R.id.bild, tippen)
                     mgr.updateAppWidget(id, v)
