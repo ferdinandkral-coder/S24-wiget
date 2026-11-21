@@ -9,6 +9,8 @@ import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
+import android.os.Bundle
 import android.widget.RemoteViews
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -52,20 +54,37 @@ class EarbudWidget : AppWidgetProvider() {
 
         fun vorschau(ctx: Context) = PillRenderer.zeichne(gemerkt(ctx).first, gemerkt(ctx).second, PillRenderer.hintergrund(ctx))
 
-        /** Zeichnet alle Widgets neu. */
-        fun zeichnen(ctx: Context, werte: Array<Int?>, laden: BooleanArray) {
+        /** Exakte Pixelgroesse eines Widgets (damit das Bild nicht skaliert werden muss und scharf bleibt). */
+        private fun groesse(ctx: Context, mgr: AppWidgetManager, id: Int): Pair<Int, Int> {
+            val o = mgr.getAppWidgetOptions(id)
+            val hoch = ctx.resources.configuration.orientation != Configuration.ORIENTATION_LANDSCAPE
+            var wDp = o.getInt(if (hoch) AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH else AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, 0)
+            var hDp = o.getInt(if (hoch) AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT else AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)
+            if (wDp <= 0) wDp = 280
+            if (hDp <= 0) hDp = 60
+            val d = ctx.resources.displayMetrics.density
+            var w = (wDp * d).toInt().coerceAtLeast(200)
+            var h = (hDp * d).toInt().coerceAtLeast(48)
+            val max = 1400   // Bildspeicher-Grenze von RemoteViews im Auge behalten
+            if (w > max) { h = h * max / w; w = max }
+            return Pair(w, h)
+        }
+
+        /** Zeichnet alle Widgets neu. glanz >= 0 = Lichtstreifen der Aktualisierungs-Animation. */
+        fun zeichnen(ctx: Context, werte: Array<Int?>, laden: BooleanArray, glanz: Float = -1f) {
             val mgr = AppWidgetManager.getInstance(ctx)
             val ids = mgr.getAppWidgetIds(ComponentName(ctx, EarbudWidget::class.java))
             if (ids.isEmpty()) return
-            val bild = PillRenderer.zeichne(werte, laden, PillRenderer.hintergrund(ctx))
+            val hg = PillRenderer.hintergrund(ctx)
             val tippen = PendingIntent.getBroadcast(
                 ctx, 0,
                 Intent(ctx, EarbudWidget::class.java).setAction(AKTION_AKTUALISIEREN),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             for (id in ids) {
+                val (w, h) = groesse(ctx, mgr, id)
                 val v = RemoteViews(ctx.packageName, R.layout.widget)
-                v.setImageViewBitmap(R.id.bild, bild)
+                v.setImageViewBitmap(R.id.bild, PillRenderer.zeichne(werte, laden, hg, w, h, glanz))
                 v.setOnClickPendingIntent(R.id.bild, tippen)
                 mgr.updateAppWidget(id, v)
             }
@@ -74,14 +93,51 @@ class EarbudWidget : AppWidgetProvider() {
         fun gibtWidgets(ctx: Context): Boolean =
             AppWidgetManager.getInstance(ctx).getAppWidgetIds(ComponentName(ctx, EarbudWidget::class.java)).isNotEmpty()
 
-        /** Liest im Hintergrund (mehrere Versuche) und zeichnet das Ergebnis. Doppelte Aufrufe werden uebersprungen. */
-        fun aktualisieren(ctx: Context, wartenMs: Long, versuche: Int, fertig: () -> Unit) {
+        /** Zaehlt die Zahlen weich vom alten auf den neuen Stand. */
+        private fun zaehlen(ctx: Context, alt: Array<Int?>, neu: Array<Int?>, laden: BooleanArray) {
+            val schritte = 10
+            for (i in 1..schritte) {
+                val t = i / schritte.toFloat()
+                val e = 1f - (1f - t) * (1f - t) * (1f - t)
+                val zw = Array<Int?>(3) { k ->
+                    val a0 = alt[k]
+                    val n0 = neu[k]
+                    if (a0 != null && n0 != null) (a0 + (n0 - a0) * e).toInt() else n0
+                }
+                zeichnen(ctx, zw, laden)
+                if (i < schritte) Thread.sleep(45)
+            }
+        }
+
+        /**
+         * Liest im Hintergrund (mehrere Versuche) und zeichnet das Ergebnis. Doppelte Aufrufe werden uebersprungen.
+         * animiert = Lichtstreifen waehrend des Lesens, danach zaehlen die Zahlen auf den neuen Stand.
+         */
+        fun aktualisieren(ctx: Context, wartenMs: Long, versuche: Int, animiert: Boolean = false, fertig: () -> Unit) {
             if (!laeuft.compareAndSet(false, true)) {
                 fertig()
                 return
             }
             Thread {
+                val glanzAn = AtomicBoolean(animiert)
+                var glanzThread: Thread? = null
                 try {
+                    val alt = gemerkt(ctx)
+                    if (animiert) {
+                        glanzThread = Thread {
+                            var t = 0f
+                            try {
+                                while (glanzAn.get()) {
+                                    zeichnen(ctx, alt.first, alt.second, t)
+                                    t += 0.06f
+                                    if (t > 1f) t = 0f
+                                    Thread.sleep(70)
+                                }
+                            } catch (e: Exception) {
+                            }
+                        }
+                        glanzThread.start()
+                    }
                     if (wartenMs > 0) Thread.sleep(wartenMs)
                     var ergebnis: EarbudReader.Ergebnis = EarbudReader.Ergebnis.Unklar
                     for (versuch in 0 until versuche) {
@@ -89,11 +145,13 @@ class EarbudWidget : AppWidgetProvider() {
                         if (ergebnis !is EarbudReader.Ergebnis.Unklar) break
                         if (versuch < versuche - 1) Thread.sleep(3000)
                     }
+                    glanzAn.set(false)
+                    glanzThread?.join(800)
                     when (val e = ergebnis) {
                         is EarbudReader.Ergebnis.Werte -> {
                             val w = arrayOf(e.links, e.rechts, e.case)
                             merken(ctx, w, e.laden)
-                            zeichnen(ctx, w, e.laden)
+                            if (animiert) zaehlen(ctx, alt.first, w, e.laden) else zeichnen(ctx, w, e.laden)
                         }
                         is EarbudReader.Ergebnis.NichtVerbunden -> {
                             merken(ctx, null, null)
@@ -103,6 +161,7 @@ class EarbudWidget : AppWidgetProvider() {
                     }
                 } catch (e: Exception) {
                 } finally {
+                    glanzAn.set(false)
                     laeuft.set(false)
                     fertig()
                 }
@@ -122,7 +181,11 @@ class EarbudWidget : AppWidgetProvider() {
         // Sofort mit dem letzten Stand zeichnen, dann im Hintergrund auffrischen
         neuZeichnen(ctx)
         val p = goAsync()
-        aktualisieren(ctx, 0, 3) { p.finish() }
+        aktualisieren(ctx, 0, 3, false) { p.finish() }
+    }
+
+    override fun onAppWidgetOptionsChanged(ctx: Context, mgr: AppWidgetManager, id: Int, neu: Bundle) {
+        neuZeichnen(ctx)   // Groesse geaendert -> in der neuen Groesse scharf zeichnen
     }
 
     @SuppressLint("MissingPermission")
@@ -143,12 +206,12 @@ class EarbudWidget : AppWidgetProvider() {
                     zeichnen(ctx, arrayOfNulls(3), BooleanArray(3))
                 } else {
                     val p = goAsync()
-                    aktualisieren(ctx, 2500, 3) { p.finish() }   // dem Kanal kurz Zeit geben
+                    aktualisieren(ctx, 2500, 3, false) { p.finish() }   // dem Kanal kurz Zeit geben
                 }
             }
             AKTION_AKTUALISIEREN -> {
                 val p = goAsync()
-                aktualisieren(ctx, 0, 3) { p.finish() }
+                aktualisieren(ctx, 0, 2, true) { p.finish() }   // Tippen: mit Animation
             }
         }
     }

@@ -4,6 +4,9 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
+import android.graphics.Path as GPath
+import android.graphics.Shader
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PorterDuff
@@ -15,7 +18,6 @@ import android.graphics.Typeface
 object PillRenderer {
     private const val BREITE = 170f   // Einheiten, wie bei der PC-Anzeige
     private const val HOEHE = 36f
-    private const val SCALE = 8f      // Pixel pro Einheit (scharf, auch auf dem S24 mit hoher Dichte)
 
     private val GRAU = Color.rgb(140, 140, 140)
 
@@ -56,36 +58,45 @@ object PillRenderer {
         return Color.argb((deck * 255 / 100), Color.red(rgb), Color.green(rgb), Color.blue(rgb))
     }
 
+    /** Vorschau in fester Groesse. */
+    fun zeichne(werte: Array<Int?>, laden: BooleanArray, hg: Int): Bitmap =
+        zeichne(werte, laden, hg, 1360, 288, -1f)
+
     /**
      * werte = links, rechts, case; null = unbekannt oder nicht verbunden (grau mit Strich).
      * laden = je Geraet, ob es gerade geladen wird (Blitz).
+     * bw/bh = exakte Bildgroesse in Pixeln (Widget-Groesse), damit nichts skaliert werden muss -> scharf.
+     * glanz = Position (0..1) eines Lichtstreifens waehrend des Aktualisierens, -1 = aus.
      */
-    fun zeichne(werte: Array<Int?>, laden: BooleanArray, hg: Int): Bitmap {
-        val w = (BREITE * SCALE).toInt()
-        val h = (HOEHE * SCALE).toInt()
-        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    fun zeichne(werte: Array<Int?>, laden: BooleanArray, hg: Int, bw: Int, bh: Int, glanz: Float): Bitmap {
+        val sc = minOf(bw / BREITE, bh / HOEHE)          // Pixel pro Einheit
+        val w = BREITE * sc
+        val h = HOEHE * sc
+        val bmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
+        c.translate((bw - w) / 2f, (bh - h) / 2f)
         val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        p.isDither = true
 
         p.color = hg
-        c.drawRoundRect(0f, 0f, w.toFloat(), h.toFloat(), h / 2f, h / 2f, p)
+        c.drawRoundRect(0f, 0f, w, h, h / 2f, h / 2f, p)
 
         // Schriftfarbe je nach Helligkeit des Hintergrunds; bei viel Durchsicht bleibt es hell
         val lum = (0.299 * Color.red(hg) + 0.587 * Color.green(hg) + 0.114 * Color.blue(hg)) / 255.0
         val hell = Color.alpha(hg) > 140 && lum > 0.6
         val textFarbe = if (hell) Color.rgb(20, 20, 20) else Color.WHITE
-        val blitzFarbe = Color.rgb(20, 20, 20)
+        val blitzRand = Color.rgb(20, 20, 20)
 
         val gw = 44f
         val abstand = 6f
         val start = (BREITE - (3 * gw + 2 * abstand)) / 2f
-        val u = SCALE * 0.78f
+        val u = sc * 0.78f
         val py = h / 2f
 
         val text = Paint(Paint.ANTI_ALIAS_FLAG)
         text.color = textFarbe
         text.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-        text.textSize = 13.5f * SCALE
+        text.textSize = 13.5f * sc
         val fm = text.fontMetrics
         val basis = py - (fm.ascent + fm.descent) / 2f
 
@@ -93,7 +104,7 @@ object PillRenderer {
             val wert = werte.getOrNull(i)
             val ladend = wert != null && laden.getOrNull(i) == true
             val gx = start + i * (gw + abstand)
-            val px = (gx + 5f) * SCALE
+            val px = (gx + 5f) * sc
             p.style = Paint.Style.FILL
             p.color = farbe(wert)
             when (i) {
@@ -101,9 +112,25 @@ object PillRenderer {
                 1 -> ohr(c, p, px, py, u, 1)
                 else -> etui(c, p, px, py, u, hg)
             }
-            if (ladend) blitz(c, px, py, u, blitzFarbe)
+            if (ladend) blitz(c, px, py, u, blitzRand)
             val beschriftung = if (wert == null) "-" else "$wert%"
-            c.drawText(beschriftung, (gx + 13f) * SCALE, basis, text)
+            c.drawText(beschriftung, (gx + 13f) * sc, basis, text)
+        }
+
+        if (glanz >= 0f) {
+            val x0 = (glanz * (BREITE + 70f) - 50f) * sc
+            val band = Paint(Paint.ANTI_ALIAS_FLAG)
+            band.shader = LinearGradient(
+                x0, 0f, x0 + 50f * sc, 0f,
+                intArrayOf(Color.argb(0, 255, 255, 255), Color.argb(90, 255, 255, 255), Color.argb(0, 255, 255, 255)),
+                null, Shader.TileMode.CLAMP
+            )
+            val rund = GPath()
+            rund.addRoundRect(RectF(0f, 0f, w, h), h / 2f, h / 2f, GPath.Direction.CW)
+            c.save()
+            c.clipPath(rund)
+            c.drawRect(0f, 0f, w, h, band)
+            c.restore()
         }
         return bmp
     }
