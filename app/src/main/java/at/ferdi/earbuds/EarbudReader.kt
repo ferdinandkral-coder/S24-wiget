@@ -28,7 +28,7 @@ object EarbudReader {
         object NichtVerbunden : Ergebnis()
         /** Verbunden, aber der Wert konnte gerade nicht gelesen werden. */
         object Unklar : Ergebnis()
-        class Werte(val links: Int?, val rechts: Int?, val case: Int?) : Ergebnis()
+        class Werte(val links: Int?, val rechts: Int?, val case: Int?, val laden: BooleanArray) : Ergebnis()
     }
 
     fun hatErlaubnis(ctx: Context): Boolean =
@@ -104,7 +104,10 @@ object EarbudReader {
                     val daten = puffer.subList(4, 4 + laenge).toList()
                     repeat(4 + laenge) { puffer.removeAt(0) }
                     if (gruppe == 0x03 && code == 0x03 && daten.size >= 3) {
-                        return Ergebnis.Werte(akku(daten[0]), akku(daten[1]), akku(daten[2]))
+                        return Ergebnis.Werte(
+                            akku(daten[0]), akku(daten[1]), akku(daten[2]),
+                            booleanArrayOf((daten[0] and 0x80) != 0, (daten[1] and 0x80) != 0, (daten[2] and 0x80) != 0)
+                        )
                     }
                 }
             }
