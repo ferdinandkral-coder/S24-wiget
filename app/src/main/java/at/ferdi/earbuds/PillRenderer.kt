@@ -16,7 +16,8 @@ import android.graphics.Typeface
 
 /** Zeichnet die Pille: linker Earbud, rechter Earbud, Case - je Symbol + Prozent, Blitz beim Laden. */
 object PillRenderer {
-    private const val BREITE = 170f   // Einheiten, wie bei der PC-Anzeige
+    private const val BREITE3 = 170f  // Einheiten, wie bei der PC-Anzeige (3 Gruppen)
+    private const val BREITE4 = 220f  // mit Laptop (4 Gruppen)
     private const val HOEHE = 36f
 
     private val GRAU = Color.rgb(140, 140, 140)
@@ -69,6 +70,8 @@ object PillRenderer {
      * glanz = Position (0..1) eines Lichtstreifens waehrend des Aktualisierens, -1 = aus.
      */
     fun zeichne(werte: Array<Int?>, laden: BooleanArray, hg: Int, bw: Int, bh: Int, glanz: Float): Bitmap {
+        val n = if (werte.size >= 4) 4 else 3
+        val BREITE = if (n == 4) BREITE4 else BREITE3
         val sc = minOf(bw / BREITE, bh / HOEHE)          // Pixel pro Einheit
         val w = BREITE * sc
         val h = HOEHE * sc
@@ -89,7 +92,7 @@ object PillRenderer {
 
         val gw = 44f
         val abstand = 6f
-        val start = (BREITE - (3 * gw + 2 * abstand)) / 2f
+        val start = (BREITE - (n * gw + (n - 1) * abstand)) / 2f
         val u = sc * 0.78f
         val py = h / 2f
 
@@ -100,7 +103,7 @@ object PillRenderer {
         val fm = text.fontMetrics
         val basis = py - (fm.ascent + fm.descent) / 2f
 
-        for (i in 0 until 3) {
+        for (i in 0 until n) {
             val wert = werte.getOrNull(i)
             val ladend = wert != null && laden.getOrNull(i) == true
             val gx = start + i * (gw + abstand)
@@ -110,7 +113,8 @@ object PillRenderer {
             when (i) {
                 0 -> ohr(c, p, px, py, u, -1)
                 1 -> ohr(c, p, px, py, u, 1)
-                else -> etui(c, p, px, py, u, hg)
+                2 -> etui(c, p, px, py, u, hg)
+                else -> laptop(c, px, py, u, p.color)
             }
             if (ladend) blitz(c, px, py, u, blitzRand)
             val beschriftung = if (wert == null) "-" else "$wert%"
@@ -139,6 +143,16 @@ object PillRenderer {
         c.drawOval(RectF(px - 5 * u, py - 9 * u, px + 5 * u, py + 2 * u), p)
         val sx = px + aussen * 3.4f * u
         c.drawRoundRect(RectF(sx - 1.9f * u, py - 2 * u, sx + 1.9f * u, py + 9 * u), 1.9f * u, 1.9f * u, p)
+    }
+
+    private fun laptop(c: Canvas, px: Float, py: Float, u: Float, farbe: Int) {
+        val l = Paint(Paint.ANTI_ALIAS_FLAG)
+        l.color = farbe
+        l.style = Paint.Style.STROKE
+        l.strokeWidth = 1.7f * u
+        c.drawRoundRect(RectF(px - 6.5f * u, py - 6.5f * u, px + 6.5f * u, py + 3.8f * u), 1.4f * u, 1.4f * u, l)
+        l.style = Paint.Style.FILL
+        c.drawRoundRect(RectF(px - 9f * u, py + 5.2f * u, px + 9f * u, py + 7.2f * u), u, u, l)
     }
 
     private fun etui(c: Canvas, p: Paint, px: Float, py: Float, u: Float, hg: Int) {

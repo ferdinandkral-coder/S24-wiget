@@ -6,7 +6,10 @@ import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.widget.Button
+import android.text.Editable
+import android.text.TextWatcher
 import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -91,6 +94,21 @@ class MainActivity : Activity() {
             if (an) LiveService.starten(this) else LiveService.stoppen(this)
         }
         box.addView(live)
+
+        // --- Sync mit dem PC ---
+        box.addView(beschriftung("Sync-Code (derselbe wie im PC-Programm; leer = Laptop-Akku aus)"))
+        val code = EditText(this)
+        code.setSingleLine(true)
+        code.setText(sp.getString("sync_code", ""))
+        code.addTextChangedListener(object : TextWatcher {
+            override fun afterTextChanged(e: Editable?) {
+                sp.edit().putString("sync_code", (e?.toString() ?: "").trim()).apply()
+                EarbudWidget.anfordern(this@MainActivity)
+            }
+            override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
+            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
+        })
+        box.addView(code)
 
         // --- Aussehen ---
         box.addView(beschriftung("Vorschau"))

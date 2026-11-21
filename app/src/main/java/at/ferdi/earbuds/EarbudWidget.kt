@@ -71,11 +71,18 @@ class EarbudWidget : AppWidgetProvider() {
         }
 
         /** Zeichnet alle Widgets neu. glanz >= 0 = Lichtstreifen der Aktualisierungs-Animation. */
-        fun zeichnen(ctx: Context, werte: Array<Int?>, laden: BooleanArray, glanz: Float = -1f) {
+        fun zeichnen(ctx: Context, werte3: Array<Int?>, laden3: BooleanArray, glanz: Float = -1f, teil: Boolean = false) {
             val mgr = AppWidgetManager.getInstance(ctx)
             val ids = mgr.getAppWidgetIds(ComponentName(ctx, EarbudWidget::class.java))
             if (ids.isEmpty()) return
             val hg = PillRenderer.hintergrund(ctx)
+            var werte = werte3
+            var laden = laden3
+            if (Sync.aktiv(ctx)) {          // vierte Gruppe: Laptop-Akku
+                val lp = Sync.laptop(ctx)
+                werte = werte3 + lp?.first
+                laden = laden3 + (lp?.second ?: false)
+            }
             val tippen = PendingIntent.getBroadcast(
                 ctx, 0,
                 Intent(ctx, EarbudWidget::class.java).setAction(AKTION_AKTUALISIEREN),
@@ -85,17 +92,21 @@ class EarbudWidget : AppWidgetProvider() {
                 val (w, h) = groesse(ctx, mgr, id)
                 val v = RemoteViews(ctx.packageName, R.layout.widget)
                 v.setImageViewBitmap(R.id.bild, PillRenderer.zeichne(werte, laden, hg, w, h, glanz))
-                v.setOnClickPendingIntent(R.id.bild, tippen)
-                mgr.updateAppWidget(id, v)
+                if (teil || glanz >= 0f) {
+                    mgr.partialUpdateAppWidget(id, v)
+                } else {
+                    v.setOnClickPendingIntent(R.id.bild, tippen)
+                    mgr.updateAppWidget(id, v)
+                }
             }
         }
 
         fun gibtWidgets(ctx: Context): Boolean =
             AppWidgetManager.getInstance(ctx).getAppWidgetIds(ComponentName(ctx, EarbudWidget::class.java)).isNotEmpty()
 
-        /** Zaehlt die Zahlen weich vom alten auf den neuen Stand. */
+        /** Zaehlt die Zahlen weich von 0 (bzw. vom alten Stand) auf den neuen Stand - wie beim PC. */
         private fun zaehlen(ctx: Context, alt: Array<Int?>, neu: Array<Int?>, laden: BooleanArray) {
-            val schritte = 10
+            val schritte = 14
             for (i in 1..schritte) {
                 val t = i / schritte.toFloat()
                 val e = 1f - (1f - t) * (1f - t) * (1f - t)
@@ -104,9 +115,31 @@ class EarbudWidget : AppWidgetProvider() {
                     val n0 = neu[k]
                     if (a0 != null && n0 != null) (a0 + (n0 - a0) * e).toInt() else n0
                 }
-                zeichnen(ctx, zw, laden)
-                if (i < schritte) Thread.sleep(45)
+                zeichnen(ctx, zw, laden, -1f, true)
+                if (i < schritte) Thread.sleep(40)
             }
+            zeichnen(ctx, neu, laden)   // Endbild inkl. Tipp-Aktion
+        }
+
+        private fun nullen(w: Array<Int?>): Array<Int?> = Array(3) { if (w[it] != null) 0 else null }
+
+        /** Nur die Animation (wenn gerade schon gelesen wird und das Tippen sonst nichts bewirken wuerde). */
+        private fun nurAnimation(ctx: Context) {
+            Thread {
+                try {
+                    val (w, l) = gemerkt(ctx)
+                    var t = 0f
+                    val ende = System.currentTimeMillis() + 800
+                    while (System.currentTimeMillis() < ende) {
+                        zeichnen(ctx, w, l, t)
+                        t += 0.07f
+                        if (t > 1f) t = 0f
+                        Thread.sleep(70)
+                    }
+                    zaehlen(ctx, nullen(w), w, l)
+                } catch (e: Exception) {
+                }
+            }.start()
         }
 
         /**
@@ -115,6 +148,7 @@ class EarbudWidget : AppWidgetProvider() {
          */
         fun aktualisieren(ctx: Context, wartenMs: Long, versuche: Int, animiert: Boolean = false, fertig: () -> Unit) {
             if (!laeuft.compareAndSet(false, true)) {
+                if (animiert) nurAnimation(ctx)
                 fertig()
                 return
             }
@@ -123,6 +157,7 @@ class EarbudWidget : AppWidgetProvider() {
                 var glanzThread: Thread? = null
                 try {
                     val alt = gemerkt(ctx)
+                    val beginn = System.currentTimeMillis()
                     if (animiert) {
                         glanzThread = Thread {
                             var t = 0f
@@ -139,11 +174,16 @@ class EarbudWidget : AppWidgetProvider() {
                         glanzThread.start()
                     }
                     if (wartenMs > 0) Thread.sleep(wartenMs)
+                    Sync.abgleich(ctx)   // Handy-Akku senden, Laptop-Akku holen (nur wenn Sync-Code gesetzt)
                     var ergebnis: EarbudReader.Ergebnis = EarbudReader.Ergebnis.Unklar
                     for (versuch in 0 until versuche) {
                         ergebnis = EarbudReader.lesen(ctx)
                         if (ergebnis !is EarbudReader.Ergebnis.Unklar) break
                         if (versuch < versuche - 1) Thread.sleep(3000)
+                    }
+                    if (animiert) {
+                        val rest = 900 - (System.currentTimeMillis() - beginn)
+                        if (rest > 0) Thread.sleep(rest)    // mindestens kurz sichtbar
                     }
                     glanzAn.set(false)
                     glanzThread?.join(800)
@@ -151,13 +191,13 @@ class EarbudWidget : AppWidgetProvider() {
                         is EarbudReader.Ergebnis.Werte -> {
                             val w = arrayOf(e.links, e.rechts, e.case)
                             merken(ctx, w, e.laden)
-                            if (animiert) zaehlen(ctx, alt.first, w, e.laden) else zeichnen(ctx, w, e.laden)
+                            if (animiert) zaehlen(ctx, nullen(w), w, e.laden) else zeichnen(ctx, w, e.laden)
                         }
                         is EarbudReader.Ergebnis.NichtVerbunden -> {
                             merken(ctx, null, null)
                             zeichnen(ctx, arrayOfNulls(3), BooleanArray(3))
                         }
-                        else -> neuZeichnen(ctx)   // verbunden, aber gerade nicht lesbar: letzter Stand
+                        else -> if (animiert) zaehlen(ctx, nullen(alt.first), alt.first, alt.second) else neuZeichnen(ctx)   // nicht lesbar: letzter Stand
                     }
                 } catch (e: Exception) {
                 } finally {
