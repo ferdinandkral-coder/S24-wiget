@@ -92,7 +92,9 @@ object Verlauf {
         }
         val spanne = (seg.last().t - seg.first().t) / 3600.0
         var jetzt: Double? = null
-        if (seg.size >= 3 && spanne >= 0.15) {
+        if (laden && seg.size == 2 && spanne >= 0.05) {
+            jetzt = (seg.last().p - seg.first().p) / spanne
+        } else if (seg.size >= 3 && spanne >= (if (laden) 0.05 else 0.15)) {
             val n = seg.size
             val mt = seg.sumOf { it.t.toDouble() } / n
             val mp = seg.sumOf { it.p.toDouble() } / n
@@ -118,7 +120,7 @@ object Verlauf {
 
         val rate: Double = when {
             jetzt != null && typ != null -> {
-                val w = minOf(1.0, spanne / 1.5)
+                val w = minOf(1.0, spanne / (if (laden) 0.25 else 1.5))
                 w * jetzt + (1 - w) * typ
             }
             jetzt != null -> jetzt
@@ -132,6 +134,16 @@ object Verlauf {
         }
         if (rate > -0.1) return keine
         return Schaetzung("entladen", maxOf(0.0, letzte.p / -rate), rate)
+    }
+
+    /** Erwarteter Stand nach h Stunden (Laden: ueber 80 % halb so schnell). */
+    fun prognose(modus: String, p0: Double, rate: Double, h: Double): Double {
+        if (modus == "laden") {
+            val bis80 = if (p0 < 80) maxOf(0.0, (80 - p0) / rate) else 0.0
+            if (h <= bis80) return p0 + rate * h
+            return minOf(100.0, maxOf(p0, 80.0) + rate / 2 * (h - bis80))
+        }
+        return maxOf(0.0, p0 + rate * h)
     }
 
     fun dauerText(h: Double?): String {

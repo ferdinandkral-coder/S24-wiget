@@ -93,12 +93,16 @@ class DiagrammView(ctx: Context) : View(ctx) {
         c.drawPath(pf, linie)
 
         val letzte = sichtbar.last()
-        if (vor > 0.0) {
-            val zielP = if (rest != null && rest > stunden * 0.5)
-                (letzte.p + (schaetzung.steigung ?: 0.0) * vor).coerceIn(0.0, 100.0)
-            else if (schaetzung.modus == "laden") 100.0 else 0.0
+        if (vor > 0.0 && schaetzung.steigung != null) {
+            val pk = Path()
+            for (i in 0..40) {
+                val h = vor * i / 40
+                val px = x(letzte.t + h * 3600)
+                val py = y(Verlauf.prognose(schaetzung.modus, letzte.p.toDouble(), schaetzung.steigung!!, h))
+                if (i == 0) pk.moveTo(px, py) else pk.lineTo(px, py)
+            }
             prognose.color = Color.argb(200, Color.red(farbe), Color.green(farbe), Color.blue(farbe))
-            c.drawLine(x(letzte.t.toDouble()), y(letzte.p.toDouble()), x(ende), y(zielP), prognose)
+            c.drawPath(pk, prognose)
         }
         punkt.color = Color.rgb(28, 28, 31)
         c.drawCircle(x(letzte.t.toDouble()), y(letzte.p.toDouble()), 6.5f * d, punkt)
