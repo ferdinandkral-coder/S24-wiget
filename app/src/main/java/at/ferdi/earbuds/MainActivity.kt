@@ -324,7 +324,7 @@ class MainActivity : Activity() {
         Thread {
             val werte = aktuell()
             val proben = Verlauf.holen(this, gewaehlt, stunden)
-            val sz = Verlauf.schaetze(Verlauf.holen(this, gewaehlt, 8))
+            val sz = Verlauf.schaetze(Verlauf.holen(this, gewaehlt, 168))
             runOnUiThread {
                 kachelnBauen(werte)
                 val name = langeNamen[gewaehlt] ?: gewaehlt

@@ -67,41 +67,71 @@ object Verlauf {
         return zeilen(ctx).filter { it.first == name && it.second.t >= grenze }.map { it.second }.sortedBy { it.t }
     }
 
-    /** Wie am PC: letztes zusammenhaengendes Stueck, lineare Regression -> Prozent pro Stunde -> Restdauer. */
+    /**
+     * Wie am PC: aktuelles Tempo (letzter zusammenhaengender Abschnitt) gemischt mit dem typischen Tempo der letzten Tage.
+     * Je kuerzer der aktuelle Abschnitt, desto mehr zaehlt das typische Tempo. Laden ueber 80 % wird halb so schnell gerechnet.
+     */
     fun schaetze(proben: List<Probe>): Schaetzung {
         val keine = Schaetzung("keine", null, null)
-        if (proben.size < 3) return keine
-        val letzteP = proben.last()
-        var laden = letzteP.l
-        if (!laden && proben.size >= 2) {
-            val vor = proben[proben.size - 2]
-            if (letzteP.p > vor.p && vor.t > letzteP.t - 1800) laden = true
-        }
+        if (proben.size < 2) return keine
+        val letzte = proben.last()
+        val vor = proben[proben.size - 2]
+        val laden = letzte.l || (letzte.p > vor.p && letzte.t - vor.t < 1800)
+
         val seg = ArrayList<Probe>()
-        seg.add(letzteP)
+        seg.add(letzte)
         for (i in proben.size - 2 downTo 0) {
             val q = proben[i]
-            if (seg[0].t - q.t > 3 * 3600 || letzteP.t - q.t > 6 * 3600) break
+            if (seg[0].t - q.t > 3 * 3600) break
             if (laden) {
-                if (q.p > seg[0].p + 1) break
+                if ((letzte.l && !q.l) || q.p > seg[0].p + 1) break
             } else {
                 if (q.l || q.p < seg[0].p - 1) break
             }
             seg.add(0, q)
         }
-        if (seg.size < 3 || seg.last().t - seg.first().t < 600) return keine
-        val n = seg.size
-        val mt = seg.sumOf { it.t.toDouble() } / n
-        val mp = seg.sumOf { it.p.toDouble() } / n
-        val v = seg.sumOf { (it.t - mt) * (it.t - mt) }
-        if (v <= 0.0) return keine
-        val steigung = seg.sumOf { (it.t - mt) * (it.p - mp) } / v * 3600.0
-        if (laden) {
-            if (steigung < 0.3) return keine
-            return Schaetzung("laden", maxOf(0.0, (100 - letzteP.p) / steigung), steigung)
+        val spanne = (seg.last().t - seg.first().t) / 3600.0
+        var jetzt: Double? = null
+        if (seg.size >= 3 && spanne >= 0.15) {
+            val n = seg.size
+            val mt = seg.sumOf { it.t.toDouble() } / n
+            val mp = seg.sumOf { it.p.toDouble() } / n
+            val v = seg.sumOf { (it.t - mt) * (it.t - mt) }
+            if (v > 0) jetzt = seg.sumOf { (it.t - mt) * (it.p - mp) } / v * 3600.0
         }
-        if (steigung > -0.1) return keine
-        return Schaetzung("entladen", maxOf(0.0, letzteP.p / -steigung), steigung)
+
+        var dp = 0.0
+        var dt = 0.0
+        for (i in 1 until proben.size) {
+            val a = proben[i - 1]
+            val b = proben[i]
+            if (b.t - a.t > 3 * 3600 || b.t <= a.t) continue
+            if (laden) {
+                if (((a.l && b.l) || (!letzte.l && b.p > a.p)) && b.p >= a.p) {
+                    dp += b.p - a.p; dt += (b.t - a.t).toDouble()
+                }
+            } else if (!a.l && !b.l && b.p <= a.p) {
+                dp += b.p - a.p; dt += (b.t - a.t).toDouble()
+            }
+        }
+        val typ: Double? = if (dt >= 1800 && dp != 0.0) dp / (dt / 3600.0) else null
+
+        val rate: Double = when {
+            jetzt != null && typ != null -> {
+                val w = minOf(1.0, spanne / 1.5)
+                w * jetzt + (1 - w) * typ
+            }
+            jetzt != null -> jetzt
+            typ != null -> typ
+            else -> return keine
+        }
+        if (laden) {
+            if (rate < 0.3) return keine
+            val h = if (letzte.p < 80) (80 - letzte.p) / rate + 20 / (rate / 2) else (100 - letzte.p) / (rate / 2)
+            return Schaetzung("laden", maxOf(0.0, h), rate)
+        }
+        if (rate > -0.1) return keine
+        return Schaetzung("entladen", maxOf(0.0, letzte.p / -rate), rate)
     }
 
     fun dauerText(h: Double?): String {
