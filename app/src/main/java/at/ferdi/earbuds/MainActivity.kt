@@ -9,6 +9,7 @@ import android.widget.Button
 import android.text.Editable
 import android.text.TextWatcher
 import android.widget.CheckBox
+import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -20,6 +21,10 @@ class MainActivity : Activity() {
 
     private lateinit var status: TextView
     private lateinit var syncStatus: TextView
+    private lateinit var diagramm: DiagrammView
+    private lateinit var diagrammText: TextView
+    private var gewaehlt = "handy"
+    private var stunden = 24
     private lateinit var vorschau: ImageView
     private lateinit var wertDeck: TextView
     private lateinit var rot: SeekBar
@@ -96,6 +101,38 @@ class MainActivity : Activity() {
         }
         box.addView(live)
 
+        // --- Verlauf und Restdauer ---
+        box.addView(beschriftung("Verlauf und voraussichtliche Restdauer"))
+        val geraete = arrayOf(
+            Pair("Links", "ohr_l"), Pair("Rechts", "ohr_r"), Pair("Case", "case"), Pair("Laptop", "laptop"), Pair("Handy", "handy")
+        )
+        val reihe1 = LinearLayout(this)
+        reihe1.orientation = LinearLayout.HORIZONTAL
+        for ((titel2, key) in geraete) {
+            val b = Button(this)
+            b.text = titel2
+            b.isAllCaps = false
+            b.setOnClickListener { gewaehlt = key; diagrammAktualisieren() }
+            reihe1.addView(b, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        box.addView(reihe1)
+        val reihe2 = LinearLayout(this)
+        reihe2.orientation = LinearLayout.HORIZONTAL
+        for ((titel2, h) in arrayOf(Pair("6 h", 6), Pair("24 h", 24), Pair("7 Tage", 168))) {
+            val b = Button(this)
+            b.text = titel2
+            b.isAllCaps = false
+            b.setOnClickListener { stunden = h; diagrammAktualisieren() }
+            reihe2.addView(b, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        box.addView(reihe2)
+        diagrammText = TextView(this)
+        diagrammText.textSize = 15f
+        diagrammText.setPadding(0, dp(8), 0, dp(4))
+        box.addView(diagrammText)
+        diagramm = DiagrammView(this)
+        box.addView(diagramm, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
         // --- Sync mit dem PC ---
         box.addView(beschriftung("Sync-Code (derselbe wie im PC-Programm; leer = Laptop-Akku aus)"))
         val code = EditText(this)
@@ -166,6 +203,27 @@ class MainActivity : Activity() {
         aktualisiereVorschau()
     }
 
+    private fun diagrammAktualisieren() {
+        val namen = mapOf("ohr_l" to "Linker Ohrhörer", "ohr_r" to "Rechter Ohrhörer", "case" to "Ladecase", "laptop" to "Laptop", "handy" to "Handy")
+        Thread {
+            val proben = Verlauf.holen(this, gewaehlt, stunden)
+            val sz = Verlauf.schaetze(Verlauf.holen(this, gewaehlt, 8))
+            val jetzt = proben.lastOrNull()?.p
+            val zeile = (namen[gewaehlt] ?: gewaehlt) + (if (jetzt != null) "  $jetzt %" else "") + "\n" + when (sz.modus) {
+                "entladen" -> "Noch ca. ${Verlauf.dauerText(sz.stunden)}  (${"%.1f".format(-(sz.steigung ?: 0.0))} % pro Stunde)"
+                "laden" -> "Lädt: voll in ca. ${Verlauf.dauerText(sz.stunden)}"
+                else -> "Restdauer: noch zu wenig Messwerte (braucht ein paar Messungen über mindestens 10 Minuten)"
+            }
+            runOnUiThread {
+                diagramm.proben = proben
+                diagramm.stunden = stunden
+                diagramm.schaetzung = sz
+                diagramm.invalidate()
+                diagrammText.text = zeile
+            }
+        }.start()
+    }
+
     private fun speichern() {
         sp.edit()
             .putInt("bg_farbe", Color.rgb(rot.progress, gruen.progress, blau.progress))
@@ -182,6 +240,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        diagrammAktualisieren()
         zeigeStatus()
         aktualisiereVorschau()
         LiveService.starten(this)

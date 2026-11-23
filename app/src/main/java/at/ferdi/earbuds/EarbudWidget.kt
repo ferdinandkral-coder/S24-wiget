@@ -31,6 +31,10 @@ class EarbudWidget : AppWidgetProvider() {
                 e.remove("l").remove("r").remove("c").remove("ll").remove("lr").remove("lc")
             } else {
                 e.putInt("l", w[0] ?: -1).putInt("r", w[1] ?: -1).putInt("c", w[2] ?: -1)
+                val la0 = laden ?: BooleanArray(3)
+                Verlauf.add(ctx, "ohr_l", w[0], la0[0])
+                Verlauf.add(ctx, "ohr_r", w[1], la0[1])
+                Verlauf.add(ctx, "case", w[2], la0[2])
                 val la = laden ?: BooleanArray(3)
                 e.putBoolean("ll", la[0]).putBoolean("lr", la[1]).putBoolean("lc", la[2])
             }

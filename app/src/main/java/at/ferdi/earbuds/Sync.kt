@@ -65,6 +65,7 @@ object Sync {
                     sp.edit().putInt("sp", h.first).putBoolean("sl", h.second).putLong("st", jetzt).apply()
                     senden = "Handy-Akku ${h.first} % gesendet"
                 }
+                Verlauf.add(ctx, "handy", h.first, h.second)
             } else senden = "Handy-Akku nicht lesbar"
         } catch (e: Exception) {
             senden = "Senden fehlgeschlagen: ${e.javaClass.simpleName} ${e.message ?: ""}"
@@ -78,6 +79,7 @@ object Sync {
             var p = -1
             var l = false
             var t = 0L
+            val alle = ArrayList<Triple<Long, Int, Boolean>>()
             for (zeile in text.lines()) {
                 if (zeile.isBlank()) continue
                 try {
@@ -86,11 +88,13 @@ object Sync {
                     val d = JSONObject(m.optString("message"))
                     if (d.optString("d") == "yoga" && d.has("p")) {
                         p = d.getInt("p"); l = d.optBoolean("l"); t = m.optLong("time")
+                        alle.add(Triple(t, p, l))
                     }
                 } catch (e: Exception) {
                 }
             }
             sp.edit().putInt("lp", p).putBoolean("ll", l).putLong("lt", t).apply()
+            for ((zt, zp, zl) in alle) Verlauf.add(ctx, "laptop", zp, zl, zt)   // Verlauf des Laptops aus allen Nachrichten
             holen = if (p < 0) "Laptop: keine Nachricht vom PC gefunden"
             else "Laptop-Akku $p % (vor ${(System.currentTimeMillis() / 1000 - t) / 60} min)"
         } catch (e: Exception) {
